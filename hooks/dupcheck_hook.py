@@ -2,8 +2,11 @@
 """The pre-commit check of the .md and .tyaml lines a commit adds or edits (README.md > "What it checks"):
 - duplicate: per sentence the commit adds (every sentence of a new line; of an edited line, those holding new words),
   its most similar line in another file and in the rest of its own file (dupcheck.search), from FLOOR up;
-- broken link: a path, heading or anchor in an added or edited markdown line that does not resolve (dupcheck_links).
-At most MAX_HITS items are shown, links first, then by score. They stop an agent's commit (an AGENT variable is set;
+- stale copy: per sentence where an edit changed a number, its most similar line in another file that still holds
+  the old number and not the new one, from STALE_FLOOR up; shown, never stops;
+- broken link: a path, heading or anchor in an added or edited markdown line that does not resolve, and a link
+  elsewhere to a file or heading the commit deletes or renames (dupcheck_links).
+At most MAX_HITS items are shown. A duplicate or a broken link stops an agent's commit (an AGENT variable is set;
 exit 3) until it fixes them or commits again with DUP_OK="<why>" in front, which passes only items a stop showed the
 same chat in the last hour; anyone else only sees them. Each run is logged to .git/dup-check/runs.jsonl. On its own
 error, or at its LIMIT seconds, it logs an error line and the commit goes through.
@@ -18,10 +21,11 @@ except Exception as e:
     BROKEN = repr(e)
 
 CHAT = os.environ.get("ZUCCHINI_CHAT_ID") or os.environ.get("CLAUDE_CODE_SESSION_ID")  # who was shown an item
-AGENT = ("CLAUDECODE", "ZUCCHINI_CHAT_ID", "DUP_CHECK_AGENT")  # Claude Code; Zucchini, for every agent it runs; any
+AGENT = ("CLAUDECODE", "ZUCCHINI_CHAT_ID", "DUP_CHECK_AGENT")  # set by Claude Code; by Zucchini; by you, for others
 MAX_QUERIES, MAX_HITS, MAX_SWAP, LIMIT = 40, 5, 4, 6
 FLOOR = 30  # raw BM25 score, as dupcheck_search.py prints it; how it was set: RESULTS.md
-STALE_FLOOR = 0  # the same score, for a stale copy; set from RESULTS.md
+STALE_FLOOR = 20  # the same score, for a stale copy (shown, never stops: STOPS); set from RESULTS.md
+STOPS = ("dup", "link")  # the kinds that stop an agent's commit
 END_PUNCT = ".,;:!?()[]{}\"'“”‘’«»`*_"  # stripped from a word's ends when an edit is compared (words)
 SEARCH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dupcheck_search.py")
 STOPPED = "Commit stopped by the pre-commit check: the lines you are committing have the problems below."
@@ -29,18 +33,24 @@ UNSEEN = "Commit stopped by the pre-commit check: DUP_OK passes only items a sto
 SEEN = "Possible problems in the lines you are committing:"
 
 
-def how():
+def how(shown):
+    """What to do about the items shown, one line per kind among them."""
     search = os.path.relpath(SEARCH) if SEARCH.startswith(os.getcwd() + os.sep) else SEARCH
-    return ("Duplicate (->): keep the fact in one place, put a link in the other or cut it.\n"
-            "Old value (still holds the old value): update that copy too, or cut it and link to the one place.\n"
-            "Broken link: fix the path or the heading.\n"
-            "Then commit again. A false alarm, or repeated on purpose: commit again with DUP_OK=\"<why, per number>\" "
-            "in front of `git commit`. Never --no-verify.\n"
-            f"python3 {search} \"<text>\" lists the 20 lines most like a sentence.")
+    kinds = {"link" if x[0] == "link" else "old" if x[7] else "dup" for x in shown}
+    return "\n".join([line for kind, line in (
+        ("dup", "Duplicate (->): keep the fact in one place, put a link in the other or cut it."),
+        ("old", "Old value (still holds the old value): update that copy, or cut it and link to the one place."),
+        ("link", "Broken link: fix the path or the heading, here or in the file that links.")) if kind in kinds] + [
+        "Then commit again. A false alarm, or repeated on purpose: commit again with DUP_OK=\"<why, per number>\" in "
+        "front of `git commit`. Never --no-verify.",
+        f"python3 {search} \"<text>\" lists the 20 lines most like a sentence."])
 
 
 def log_path():
-    return os.path.join(ROOT, git("rev-parse", "--git-common-dir").stdout.strip(), "dup-check", "runs.jsonl")
+    r = git("rev-parse", "--git-common-dir")
+    if r.returncode:
+        raise RuntimeError(r.stderr.strip())
+    return os.path.join(ROOT, r.stdout.strip(), "dup-check", "runs.jsonl")
 
 
 def hunks(commit):
@@ -84,9 +94,11 @@ def changed(old, line):
     """What to search for `line`: (its sentences holding new words, [(a sentence of the line it replaced, its
     swaps)]). A new line (no line of `old` has at least half the same words) is all new and replaces nothing; an edit
     only searches the sentences holding inserted or replaced words, so one that only deleted words or changed case,
-    end punctuation or emphasis searches nothing. A swap is a span of at most MAX_SWAP words replaced by at most
-    MAX_SWAP others, as (the old span, its dupcheck.words() tokens the new line lacks, the new span's tokens the old
-    line lacks), kept when the second is not empty."""
+    end punctuation or emphasis searches nothing. A swap is a number changed in place: a span of at most MAX_SWAP
+    words replaced by at most MAX_SWAP words holding a number, as (the old span, its dupcheck.words() tokens the new
+    line lacks, the new span's tokens the old line lacks), kept when the tokens the new line lacks hold 3+ digits
+    (`4417`, `02:30`, `€950`; not a day or a count like `18`). Other edits are mostly rewordings or a copy cut to a
+    link, whose other copy is meant to stay: RESULTS.md."""
     sm = difflib.SequenceMatcher(None, autojunk=False)
     sm.set_seq2(words(line))
     ratio = lambda o: (sm.set_seq1(words(o)), sm.quick_ratio())[1]
@@ -99,8 +111,9 @@ def changed(old, line):
     a, b = words(was), words(line)
     ta, tb = set(tokens(was)), set(tokens(line))
     swaps = [(i1, " ".join(a[i1:i2]), sorted(set(tokens(" ".join(a[i1:i2]))) - tb), sorted(set(tokens(" ".join(b[j1:j2]))) - ta))
-             for op, i1, i2, j1, j2 in ops if op == "replace" and i2 - i1 <= MAX_SWAP and j2 - j1 <= MAX_SWAP]
-    swaps = [x for x in swaps if x[2]]
+             for op, i1, i2, j1, j2 in ops if op == "replace" and i2 - i1 <= MAX_SWAP and j2 - j1 <= MAX_SWAP
+             and re.search(r"\d", " ".join(b[j1:j2]))]
+    swaps = [x for x in swaps if len(re.findall(r"\d", "".join(t for t in x[2] if re.search(r"\d", t)))) >= 3]
     return ([s for s, idx in spans(line) if new & idx],
             [(s, [x[1:] for x in swaps if x[0] in idx]) for s, idx in spans(was) if any(x[0] in idx for x in swaps)])
 
@@ -158,7 +171,8 @@ def moved(commit):
 
 
 def check(replay=None):
-    """The items to show for the commit being made, or for `replay`, links first, then by score: (kind, committed
+    """The items to show for the commit being made, or for `replay`, links first, then duplicates and then stale
+    copies by score: (kind, committed
     file, committed text, target file, target line, target text, score, note: a link's why or a stale copy's old
     value), and the record to log."""
     qs, olds, links, heads, parsed, cache = {}, {}, [], [], {}, {}
@@ -193,9 +207,9 @@ def check(replay=None):
             for s, sw in replaced:
                 if is_line(s) and len(olds) < MAX_QUERIES:
                     olds.setdefault((f, s), (t, sw))
-    for x in orphans(ROOT, git, moved(replay), heads, cache):
-        if x[0] not in skip and (x[0], x[3]) not in {(f, t) for f, _, _, t, _ in links}:
-            links.append(x)
+    found = orphans(ROOT, git, moved(replay), heads, cache)
+    out = excluded({x[0] for x in found})
+    links += [x for x in found if x[0] not in out and (x[0], x[3]) not in {(f, t) for f, _, _, t, _ in links}]
     qs, olds = list(qs.items()), list(olds.items())
     found = search([s for (_, s), _ in qs + olds], 20, at=[(f, n) for (f, _), n in qs] + [(f, None) for (f, _), _ in olds]) \
         if qs or olds else []
@@ -206,9 +220,12 @@ def check(replay=None):
     hits = [("dup", f, s, h[0], h[1], h[3], h[2], "") for ((f, s), _), r in zip(qs, results) for h in r if h and h[2] >= FLOOR]
     hits += [("stale", f, t, h[0], h[1], h[3], h[2], ", ".join(held(h[3], sw)))
              for ((f, _), (t, sw)), h in zip(olds, stale) if h and h[2] >= STALE_FLOOR]
-    for x in sorted(hits, key=lambda x: -x[6]):
-        if x[3:5] not in [y[3:5] for y in items if y[0] != "link"]:
+    for x in sorted(hits, key=lambda x: (x[0] == "stale", -x[6])):
+        same = [i for i, y in enumerate(items) if y[0] != "link" and y[3:5] == x[3:5]]
+        if not same:
             items.append(x)
+        elif x[0] == "stale":  # a duplicate that also holds the old number: say so
+            items[same[0]] = items[same[0]][:7] + (x[7],)
     record = {"queries": [{"file": f, "text": s, "hit": hit, "own": own} for ((f, s), _), (hit, own) in zip(qs, results)],
               "stale": [{"file": f, "text": s, "swaps": sw, "hit": h} for ((f, s), (_, sw)), h in zip(olds, stale)],
               "links": [{"file": f, "line": n, "target": t, "why": w} for f, n, _, t, w in links]}
@@ -233,18 +250,17 @@ def main(replay=None):
         seen = {tuple(k) for r in stops(log_path()) if r["time"] >= since and r.get("chat") == CHAT for k in r["shown"]}
         new = [x for x in items if tuple(key(x)) not in seen]
     shown = new[:MAX_HITS]
-    stop = bool(shown and agent)
+    stop = bool(agent and any(x[0] in STOPS for x in shown))
     if shown:
         print(UNSEEN if stop and why else STOPPED if stop else SEEN)
         for i, (kind, f, text, hit_file, n, target, _, note) in enumerate(shown, 1):
             if kind == "link":
                 print(f"{i}. {f}{f':{n}' if n else ''} broken link: {target} ({note})")
-            elif kind == "stale":
-                print(f"{i}. {f}: {text.strip()[:120]}\n   still holds the old value ({note}): -> {hit_file}:{n} {target.strip()[:200]}")
             else:
-                print(f"{i}. {f}: {text.strip()[:120]}\n   -> {hit_file}:{n} {target.strip()[:200]}")
+                old = f"still holds the old value ({note}): " if note else ""
+                print(f"{i}. {f}: {text.strip()[:120]}\n   {old}-> {hit_file}:{n} {target.strip()[:200]}")
         if stop:
-            print(how())
+            print(how(shown))
     if not replay:
         log({"parent": git("rev-parse", "--short", "HEAD").stdout.strip(), **record,
              "shown": [key(x) for x in shown], "stopped": stop, "ok": why or None, "agent": agent})
@@ -269,9 +285,10 @@ def run():
         give_up("timeout", replay)
         os._exit(0)
 
-    signal.signal(signal.SIGALRM, timeout)
-    signal.alarm(LIMIT)
     try:
+        if hasattr(signal, "SIGALRM"):  # not on Windows, which runs without the limit
+            signal.signal(signal.SIGALRM, timeout)
+            signal.alarm(LIMIT)
         if BROKEN:
             raise RuntimeError(BROKEN)
         main(replay)

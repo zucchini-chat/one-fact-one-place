@@ -365,16 +365,33 @@ class Search(unittest.TestCase):
 class StaleCopies(unittest.TestCase):
     def setUp(self):
         self.r = Repo(self)
-        self.r.write("runbook.md", f"# Runbook\n\nRestore drill: {F1}\n")
-        self.r.commit("runbook.md", DUP_OK="x", DUP_CHECK_AGENT="1")
-        self.r.commit("runbook.md", DUP_OK="x", DUP_CHECK_AGENT="1")
+        self.r.write("runbook.md", "# Runbook\n\nThe restore drill starts from the 02:30 UTC snapshot in quarry-backups-eu.\n")
+        self.assertEqual(self.r.commit("runbook.md", DUP_CHECK_AGENT="1").returncode, 0)
 
-    def test_old_value_left_elsewhere(self):
+    def test_old_value_left_elsewhere_is_shown_not_stopped(self):
         r = self.r
         r.write("facts.md", r.read("facts.md").replace("02:30 UTC", "04:45 UTC"))
         c = r.commit("facts.md", **AGENT)
-        self.assertIn("still holds the old value (02:30): -> runbook.md:3 Restore drill", c.out)
+        self.assertEqual(c.returncode, 0, c.out)
+        self.assertIn(SEEN, c.out)
+        self.assertIn("still holds the old value (02:30): -> runbook.md:3 The restore drill", c.out)
         self.assertEqual(r.log()[-1]["stale"][0]["hit"][0], "runbook.md")
+
+    def test_a_duplicate_holding_the_old_value_stops(self):
+        r = self.r
+        r.write("copy.md", f"Restore drill: {F1}\n")
+        r.commit("copy.md", DUP_CHECK_AGENT="1")
+        r.commit("copy.md", DUP_CHECK_AGENT="1", DUP_OK="test setup")
+        r.write("facts.md", r.read("facts.md").replace("02:30 UTC", "04:45 UTC"))
+        c = r.commit("facts.md", **AGENT)
+        self.assertNotEqual(c.returncode, 0)
+        self.assertIn("still holds the old value (02:30): -> copy.md:1 Restore drill", c.out)
+
+    def test_only_a_changed_number_is_searched(self):
+        r = self.r
+        r.write("facts.md", r.read("facts.md").replace("staging database", "staging cluster"))
+        r.commit("facts.md", **AGENT)
+        self.assertEqual(r.log()[-1]["stale"], [])
 
     def test_both_copies_updated(self):
         r = self.r
@@ -405,7 +422,7 @@ class Links(unittest.TestCase):
             "See [the guide](guide.md) and [setup](setup.md).": ["setup.md"],
             "Config: `config/app.yaml`, deploy steps `docs/deploy.md` > \"Roll forward\".": ["config/app.yaml", 'docs/deploy.md > "Roll forward"'],
             "Back out with [roll back](deploy.md#roll-back) or [smoke](deploy.md#smoke-test).": ["deploy.md#roll-back"],
-            "Read `guide.md` > \"Start\" and `missing.md`.": ['guide.md > "Start"', "missing.md"],
+            "Read `guide.md` > \"Start\" and `missing.md`, [m](missing.md).": ['guide.md > "Start"', "missing.md"],
         }
         for line, want in cases.items():
             self.assertEqual(sorted(self.broken(line)), sorted(want), line)
@@ -435,6 +452,16 @@ class Links(unittest.TestCase):
         self.assertIn('docs/index.md:3 broken link: docs/deploy.md > "Smoke test" (no such heading in docs/deploy.md)', c.out)
         c = r.commit("docs/deploy.md", DUP_OK="heading renamed, index fixed next", **AGENT)
         self.assertEqual(c.returncode, 0, c.out)
+
+    def test_deleted_file_named_bare_and_excluded_history(self):
+        r = self.r
+        r.write("docs/index.md", "# Index\n\nStart with `guide.md`.\n")
+        r.write("log/2026.md", "- moved [the guide](../docs/guide.md) here\n")
+        r.write(".gitattributes", "log/** -dup-check\n")
+        r.commit("docs/index.md", "log/2026.md", ".gitattributes")
+        r.git("rm", "-q", "docs/guide.md")
+        c = r.commit(**AGENT)
+        self.assertEqual(re.findall(r"(?m)^\d+\. (\S+) broken link", c.out), ["docs/index.md:3"], c.out)
 
 
 @unittest.skipIf(yaml is None, "PyYAML is not installed")
