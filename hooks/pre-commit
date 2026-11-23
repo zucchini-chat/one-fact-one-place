@@ -1,0 +1,16 @@
+#!/bin/sh
+# git pre-commit hook (git config core.hooksPath <this folder>): the .tyaml type check on the commit's .tyaml files,
+# then the duplicate, stale-copy and link check. Only exit code 3 from either stops the commit; a crash or a missing
+# python3 lets it through. What they do: tyaml.py, dupcheck_hook.py
+set -f  # file names as written: no globbing, split on newlines only
+IFS='
+'
+dir="$(dirname "$0")"
+set -- $(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMR -- '*.tyaml')
+if [ $# -gt 0 ]; then
+  python3 "$dir/tyaml.py" "$@"
+  [ $? -eq 3 ] && exit 1
+fi
+python3 "$dir/dupcheck_hook.py"
+[ $? -eq 3 ] && exit 1
+exit 0

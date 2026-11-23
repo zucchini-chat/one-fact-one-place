@@ -1,0 +1,15 @@
+- id: dup-check
+  name: duplicate facts, stale copies and broken links
+  description: Stops an agent's commit when a markdown or .tyaml line repeats a fact, leaves an old value elsewhere or links to nothing.
+  entry: dupcheck-hook
+  language: python
+  pass_filenames: false
+  always_run: true
+  verbose: true
+- id: tyaml
+  name: typed YAML (.tyaml)
+  description: Checks .tyaml files against their own types.
+  entry: tyaml-check
+  language: python
+  files: \.tyaml$
+  additional_dependencies: [pyyaml]
