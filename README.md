@@ -28,6 +28,18 @@ python3 tools/hooks/dupcheck_search.py "<text>" lists the 20 lines most like a s
 ```
 
 ## Install
+**Agent repos: a clone inside the repo (recommended).** In the repo's root:
+```
+git clone https://github.com/zucchini-chat/one-fact-one-place
+echo /one-fact-one-place/ >> .gitignore
+git config core.hooksPath one-fact-one-place/hooks
+```
+and one line in the repo's `CLAUDE.md` or `AGENTS.md`:
+```
+- Storage rules: @one-fact-one-place/RULES.md (Claude Code loads it from this line; any other agent reads that file before its first edit).
+```
+The clone is git-ignored, so the repo holds no copy of the hooks or the rules, and `git -C one-fact-one-place pull --ff-only` updates both. The relative `hooksPath` works wherever the repo is cloned; each clone runs these three commands once. Claude Code expands an `@path` import into the session's context, outside code spans only, so the path is not in backticks; Codex does not expand imports and reads the same line as an instruction. Keep the clone inside the working directory: Claude Code asks in an interactive dialog before loading an import from outside it, and a session that never shows that dialog never loads the rules. Without the clone git runs no hooks and says nothing, so have something the agent sees at session start report a missing `one-fact-one-place/hooks/pre-commit`.
+
 **git `core.hooksPath`.** Copy `hooks/` into your repo, for example as `tools/hooks/`, commit it, and run in each clone:
 ```
 git config core.hooksPath tools/hooks
@@ -89,7 +101,7 @@ vendors:
 The pre-commit hook runs `hooks/tyaml.py` on each `.tyaml` file the commit adds or changes and stops any commit, a person's too, on a type error. A `''` anywhere on a line also fails (a grep for an apostrophe misses a doubled one): write such a value as a `|-` block. PyYAML (MIT) must be importable by the `python3` the hooks run; without it the check stops commits that touch a `.tyaml` file. The duplicate check reads `.tyaml` files without PyYAML and skips the fields `source` and `see`, which say where a fact comes from or where it lives.
 
 ## Storage rules
-[RULES.md](RULES.md) is a section to paste into a repo's `CLAUDE.md` or `AGENTS.md`: files hold current state and the git log holds history, one fact in one place, links resolve, commit by explicit path because parallel agents share a working tree, never hard-wrap prose, what to do when `git commit` stops.
+[RULES.md](RULES.md) is the section of a repo's `CLAUDE.md` or `AGENTS.md` that tells agents how to store facts: files hold current state and the git log holds history, save a decision in the same turn, one fact in one place, links resolve, what to do when `git commit` stops, commit by explicit path because parallel agents share a working tree, never hard-wrap prose, `.tyaml` for records. Import it ("Install") or paste it; a pasted copy can drop the `.tyaml` line when the repo does not use the type check, and the commit-by-path line when every agent works in its own clone or worktree. The rules alone are not enough ("Why it stops the commit"): the hook makes the agent stop and look; the rules tell it what to do then.
 
 ## Tests
 `python3 -m unittest discover tests`: real commits in throwaway repos, about 25 s. The `.tyaml` tests need PyYAML and are skipped without it.
