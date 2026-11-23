@@ -2,7 +2,7 @@
 
 A git pre-commit hook for repos that AI agents write to. It stops an agent's commit when a line it adds repeats a fact that already lives elsewhere in the repo's markdown, or links to a file or heading that does not exist. A person committing sees the same list and the commit goes through. Python 3.9+ standard library; the optional `.tyaml` type check also needs PyYAML.
 
-Tools that keep an agent's memory in git, such as mex, DiffMem or okf-agent-memory, help the agent read that memory back. This one is about writing it: an agent that writes a fact a second time, in another file or further down the same one, leaves two copies that drift apart, and by the time anyone notices, that agent has moved on. It fits any repo whose notes, docs, `CLAUDE.md` or `AGENTS.md` agents keep editing, code repos included.
+Tools that keep an agent's memory in git mostly help the agent find and read it. This one checks what gets written: an agent that writes a fact a second time, in another file or further down the same one, leaves two copies that drift apart, and by the time anyone notices, that agent has moved on. It fits any repo whose notes, docs, `CLAUDE.md` or `AGENTS.md` agents keep editing, code repos included.
 
 It is the memory part of [personal-agent-scaffold](https://github.com/zucchini-chat/personal-agent-scaffold) (a full personal-agent setup), on its own.
 
