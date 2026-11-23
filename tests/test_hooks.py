@@ -432,7 +432,7 @@ class Links(unittest.TestCase):
                      "`docs/deploy.md` > \"Roll back\" > \"Smoke test\", [smoke](deploy.md#smoke-test), [here](#guide-notes).",
                      "Paths: `config/app.json`, `secrets.txt`, `tmp/run.log`, `~/notes/x.md`, `/etc/hosts.md`, `*.md`, `.tyaml`.",
                      "Placeholders: `<topic>/CLAUDE.md`, [x](<name>.md), `$HOME/a.md`, `src/{a,b}.md`; code: `Node.js`, `os.path`.",
-                     "Example: `[x](nowhere.md)` inside a code span."):
+                     "Examples: `[x](nowhere.md)` and `nowhere.md > \"Heading\"` inside code spans."):
             self.assertEqual(self.broken("# Guide notes\n\n" + line), [], line)
         self.r.write("docs/fenced.md", "# F\n\n```\nsee [x](nowhere.md) and `gone/file.md`\n```\n")
         self.assertEqual(self.r.commit("docs/fenced.md", **AGENT).returncode, 0)

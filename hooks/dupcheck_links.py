@@ -133,9 +133,10 @@ def problems(root, file, line, cache=None, bare=()):
                 and unquote(anchor).lower() not in anchors(text(p)):
             out.append((t, f"no heading for #{anchor} in {p}", [p]))
     named = set()
+    spans = [m.span() for m in CODE.finditer(line)]
     for m in HEADING_REF.finditer(line):
         named.add(m[1])
-        if not names(m[1]):
+        if not names(m[1]) or any(a <= m.start() and m.end() <= b for a, b in spans):  # inside one code span: an example
             continue
         ps = [p for p in names(m[1]) if os.path.isfile(os.path.join(root, p))] or anywhere(m[1])
         if not ps:
