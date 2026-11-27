@@ -1,12 +1,13 @@
-"""Duplicate-fact search over a git repo's markdown and .tyaml files, standard library only: BM25 over sentences,
-rebuilt on each call; a line scores by its best sentence against the query's best sentence. Which files it reads:
-corpus_files(); what each line compares: units()."""
+"""Duplicate-fact search over a git repo's markdown, .tyaml and opted-in line files, standard library only: BM25 over
+sentences, rebuilt on each call; a line scores by its best sentence against the query's best sentence. Which files it
+reads: corpus_files(); what each line compares: units()."""
 import fnmatch, math, os, re, subprocess
 from collections import Counter, defaultdict
 
 ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}  # a hook's GIT_INDEX_FILE may be temporary
 ROOT = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, encoding="utf-8",
                       env=ENV).stdout.strip()
+CORPUS = ("*.md", "*.tyaml", ":(attr:dup-check)")  # git pathspecs; any other file with dup-check set is a line file
 DEFAULT_EXCLUDE = ("CHANGELOG*", "CHANGES*", "HISTORY*", "NEWS*")  # file names, any case: they repeat on purpose
 SKIP_FIELDS = ("source", "see")  # .tyaml fields that say where a fact comes from or where it lives
 K1, B = 1.2, 0.75
@@ -60,10 +61,14 @@ def words(text):
 def units(path, text):
     """Per line of a file: (the text it compares, its block). A line is not compared with the lines of its own block:
     a markdown paragraph (the lines between blank lines and headings), a .tyaml record (each item of a data list, a
-    one-line `- {key: value, ...}` included; the types document with the comments above it is one). A .tyaml data line
-    compares its values without the keys; a SKIP_FIELDS field, list items under it included, compares nothing."""
+    one-line `- {key: value, ...}` included; the types document with the comments above it is one), a line of a line
+    file. A .tyaml data line compares its values without the keys; a SKIP_FIELDS field, list items under it included,
+    compares nothing."""
     out, block, key, data, indent = [], 0, None, False, None
     for n, t in enumerate(text.split("\n"), 1):
+        if not path.endswith((".md", ".tyaml")):
+            out.append((t, n))
+            continue
         if not path.endswith(".tyaml"):
             if not t.strip() or t.startswith("#"):
                 block = n
@@ -89,9 +94,9 @@ def units(path, text):
 
 
 def corpus_files():
-    """Tracked and untracked-but-not-ignored .md and .tyaml files, minus excluded() and symlinks (AGENTS.md ->
-    CLAUDE.md). Raises when git fails, which must not look like an empty corpus."""
-    r = git("ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "*.md", "*.tyaml")
+    """Tracked and untracked-but-not-ignored CORPUS files, minus excluded() and symlinks (AGENTS.md -> CLAUDE.md).
+    Raises when git fails, which must not look like an empty corpus."""
+    r = git("ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", *CORPUS)
     if r.returncode:
         raise RuntimeError(r.stderr.strip())
     files = {f for f in r.stdout.split("\0") if f and not os.path.islink(os.path.join(ROOT, f))}

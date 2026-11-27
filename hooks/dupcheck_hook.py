@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The pre-commit check of the .md and .tyaml lines a commit adds or edits (README.md > "What it checks"):
+"""The pre-commit check of the .md, .tyaml and line-file lines a commit adds or edits (README.md > "What it checks"):
 - duplicate: per sentence the commit adds (every sentence of a new line; of an edited line, those holding new words),
   its most similar line in another file and in the rest of its own file (dupcheck.search), from FLOOR up;
 - stale copy: per sentence where an edit changed a number, its most similar line in another file that still holds
@@ -14,7 +14,7 @@ error, or at its LIMIT seconds, it logs an error line and the commit goes throug
 import ast, collections, difflib, json, os, re, signal, subprocess, sys, time
 
 try:  # a broken install must not block commits: run() reports it and lets the commit through
-    from dupcheck import ROOT, excluded, git, is_line, search, sentences, units, words as tokens
+    from dupcheck import CORPUS, ROOT, excluded, git, is_line, search, sentences, units, words as tokens
     from dupcheck_links import fenced, headings, norm, orphans, problems
     BROKEN = None
 except Exception as e:
@@ -54,11 +54,11 @@ def log_path():
 
 
 def hunks(commit):
-    """(file, removed lines, added lines as (number, line)) per hunk of the .md and .tyaml diff: of the commit being
-    made (the index git hands the hook), or of an older `commit` (not the root commit). Raises when git fails."""
+    """(file, removed lines, added lines as (number, line)) per hunk of the CORPUS diff: of the commit being made (the
+    index git hands the hook), or of an older `commit` (not the root commit). Raises when git fails."""
     args = ["diff", "--unified=0", "--no-color", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/"]
-    diff = (git(*args, f"{commit}~1", commit, "--", "*.md", "*.tyaml") if commit else
-            subprocess.run(["git", "-c", "core.quotePath=false", *args, "--cached", "--", "*.md", "*.tyaml"],
+    diff = (git(*args, f"{commit}~1", commit, "--", *CORPUS) if commit else
+            subprocess.run(["git", "-c", "core.quotePath=false", *args, "--cached", "--", *CORPUS],
                            capture_output=True, encoding="utf-8", errors="replace"))
     if diff.returncode:
         raise RuntimeError(diff.stderr.strip())

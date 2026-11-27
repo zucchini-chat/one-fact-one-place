@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Lines of the repo's markdown and .tyaml most like a text or like one repo line, best first: file:line, BM25 score,
-the line's best-matching sentence. The pre-commit check (dupcheck_hook.py) shows a hit from its FLOOR up.
+"""Lines of the repo's markdown, .tyaml and line files most like a text or like one repo line, best first: file:line,
+BM25 score, the line's best-matching sentence. The pre-commit check (dupcheck_hook.py) shows a hit from its FLOOR up.
 Usage: dupcheck_search.py "text" [-k 20] [--history]
-       dupcheck_search.py path/to/file.md:LINE [-k 20] [--history]   (or .tyaml; that line's paragraph or record is
+       dupcheck_search.py path/to/file.md:LINE [-k 20] [--history]   (or any file; that line's paragraph or record is
        left out, dupcheck.units)
 --history adds under each hit the last commit that touched that line (git blame): date, hash, subject."""
 import argparse, os, re, sys, time
@@ -29,9 +29,9 @@ def main():
     a = ap.parse_args()
     if not ROOT:
         sys.exit("not inside a git repository")
-    m = re.fullmatch(r"(.+\.(?:md|tyaml)):(\d+)", a.target)
-    if m:
-        path = next((p for p in (os.path.abspath(m[1]), os.path.join(ROOT, m[1])) if os.path.isfile(p)), None)
+    m = re.fullmatch(r"(.+):(\d+)", a.target)
+    path = m and next((p for p in (os.path.abspath(m[1]), os.path.join(ROOT, m[1])) if os.path.isfile(p)), None)
+    if path or m and m[1].endswith((".md", ".tyaml")):
         if not path:
             sys.exit(f"no such file: {m[1]}")
         f, n = os.path.relpath(os.path.realpath(path), os.path.realpath(ROOT)), int(m[2])

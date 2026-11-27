@@ -258,6 +258,39 @@ class Excludes(unittest.TestCase):
         self.assertIn("-> CHANGELOG.md:3", c.out, "dup-check set brings a default-excluded file back")
 
 
+class LineFiles(unittest.TestCase):
+    """Files with dup-check set that are not .md or .tyaml: each line is its own record."""
+    def setUp(self):
+        r = self.r = Repo(self)
+        r.write(".gitattributes", "data/*.csv dup-check\n")
+        r.write("data/vendors.csv", f"name,notes\nexport,{F6}\n")
+        r.write("other/vendors.csv", f"name,notes\nsupport,{F5}\n")
+        r.commit(".gitattributes", "data/vendors.csv", "other/vendors.csv")
+
+    def test_opted_in_lines_are_searched_and_hit(self):
+        r = self.r
+        r.write("notes.md", F5 + "\n\n" + F6 + "\n")
+        c = r.commit("notes.md", **AGENT)
+        self.assertRegex(c.out, r"(?m)^1\. notes\.md: The nightly.*\n   -> data/vendors\.csv:2 export,The nightly")
+        self.assertNotIn("other/vendors.csv", c.out, "a file without the attribute is not read")
+        r.write("data/vendors.csv", f"flags,{F4}\nflags-copy,{F4}\n", append=True)
+        c = r.commit("data/vendors.csv", **AGENT)
+        self.assertRegex(c.out, r"(?m)^1\. data/vendors\.csv: flags.*\n   -> data/vendors\.csv:\d flags", "the next line is another record")
+
+    def test_no_link_check(self):
+        r = self.r
+        r.write("data/vendors.csv", "runbook,see [the runbook](missing.md) and `data/missing.csv` for the 42 steps\n", append=True)
+        c = r.commit("data/vendors.csv", **AGENT)
+        self.assertEqual(c.returncode, 0, c.out)
+
+    def test_search_a_line(self):
+        r = self.r
+        r.write("notes.md", F6 + "\n")
+        r.commit("notes.md")
+        self.assertTrue(r.py("dupcheck_search.py", "data/vendors.csv:2").out.startswith("notes.md:1 "))
+        self.assertEqual(r.py("dupcheck_search.py", "data/vendors.csv:9").out.strip(), "data/vendors.csv has no line 9")
+
+
 class Failures(unittest.TestCase):
     def patch(self, r, old, new):
         p = os.path.join(r.hooks, "dupcheck.py")

@@ -4,7 +4,7 @@ What the check was measured on, and what is not tested yet. The repos are privat
 
 ## The repos
 - **A:** a personal notes repo that several Claude Code agents write to in parallel, in one working tree: about 660 markdown and `.tyaml` files, 43-48k sentences. All measurements of the stop are from A, November 2026.
-- **B:** a second repo of the same owner and agents, code with markdown and SQL data files; used only for the same-file measurement.
+- **B:** a second repo of the same owner and agents, code with markdown and SQL data files; used for the same-file measurement and the line-file replay.
 - **C:** a product's code repo (apps on several platforms and a backend) with 32 markdown files: `CLAUDE.md` per component, a backlog, ops notes. Used for the noise test and the replays of the new checks.
 - **S:** [personal-agent-scaffold](https://github.com/zucchini-chat/personal-agent-scaffold), about 500 sentences.
 
@@ -68,6 +68,8 @@ On the 714 sentences agents committed to A in 134 commits, every line in the top
 Each commit was replayed at its own tree in a throwaway clone: A's last 400 commits that touched markdown, and all such commits of C (317) and S (34), root commits aside. These count what the check would show, not what agents would do with it.
 
 **Noise of the duplicate check on a code repo (C).** C's last 20 commits that touched markdown: 12 of the 20 would show hits, 32 lines in all: 9 D, 9 R, 14 N (labelled by one agent reading them). A real duplicate came up in 6 of the 20 commits, so an agent would have been stopped in 12 commits, 6 of them for nothing real. The noise is mostly parallel entries of one list and a backlog item next to the spec it refers to.
+
+**Line files (B).** B's last 30 commits that touched its SQL data files, with `data/*.sql dup-check`: 26 stops (14 with a D), 86 lines: 26 D, 40 R, 20 N (labelled by one agent). B's earlier check, which compared SQL rows without column names and `source` values, on the same commits: 21 stops (12 with a D), 59 lines: 22 D, 32 R, 5 N. That skip, tried on this check, cut N to 6 but stops with a D to 10, so it is not built.
 
 **Old values (shown, never stops).** First version: any short replaced span (up to 4 words) whose old words a line in another file still holds, without the new ones. On A's 400 commits that gave 140 candidates from 208 replaced sentences in 117 commits; of the 52 scoring 30 or more, read by hand, none was a stale copy. Most were a copy cut to a link whose canonical copy stays on purpose, a reworded sentence, or a review log quoting the old line. Built: only a number changed in place, with 3 or more changed digits, from a score of 20 (README > "What it checks"). Over all three replays (751 commits) it shows 5 lines: 4 in A, 1 in C, none in S. One is a real stale copy (a card number another file still gave, fixed a few commits later); four are records that name the old value on purpose (a log of what a mail said, a "the old account was ..." note, a review, a note about a former host). That is not mostly real, and no floor makes it so on this data, so it never stops a commit.
 
